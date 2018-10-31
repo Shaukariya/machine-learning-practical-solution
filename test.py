@@ -1,11 +1,12 @@
 import numpy as np
 import _pickle as cp
 import matplotlib.pyplot as plt
+import sklearn.linear_model as lm
 
 
 SPLIT_COEFFICIENT = 0.8
 TRAINING_SIZE_MIN = 20
-TRAINING_SIZE_MAX = 600
+TRAINING_SIZE_MAX = 2000
 
 def expand_with_ones(X):
     X_out = np.ones((X.shape[0], X.shape[1] + 1))
@@ -109,8 +110,9 @@ if __name__ == "__main__":
         mse_train, mse_test = train_and_test(X, y, None, train_size, 980)
         mse_train_v.append(mse_train)
         mse_test_v.append(mse_test)
+    # TODO: Add legend.
     plt.plot(np.arange(TRAINING_SIZE_MIN, TRAINING_SIZE_MAX, 20), mse_train_v, 'r--',
-             np.arange(TRAINING_SIZE_MIN, TRAINING_SIZE_MAX, 20), mse_test_v, 'bo')
+             np.arange(TRAINING_SIZE_MIN, TRAINING_SIZE_MAX, 20), mse_test_v, 'b-')
     plt.xlabel('Training data set size')
     plt.ylabel('Mean squared error')
     plt.title('Dependency of MSE from training size')
