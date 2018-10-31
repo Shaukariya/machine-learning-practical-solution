@@ -111,6 +111,7 @@ if __name__ == "__main__":
         mse_train_v.append(mse_train)
         mse_test_v.append(mse_test)
     # TODO: Add legend.
+    plt.figure(2)
     plt.plot(np.arange(TRAINING_SIZE_MIN, TRAINING_SIZE_MAX, 20), mse_train_v, 'r--',
              np.arange(TRAINING_SIZE_MIN, TRAINING_SIZE_MAX, 20), mse_test_v, 'b-')
     plt.xlabel('Training data set size')
