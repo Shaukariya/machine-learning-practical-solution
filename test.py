@@ -3,6 +3,7 @@ import _pickle as cp
 import matplotlib.pyplot as plt
 import sklearn.linear_model as lm
 import sklearn.preprocessing
+from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures
 
 SPLIT_COEFFICIENT = 0.8
@@ -181,4 +182,12 @@ if __name__ == "__main__":
           format(mse_train_r, mse_test_r))
     print("Train mean squared error for lasso is {}, test is {}".
           format(mse_train_l, mse_test_l))
+
+    kFold = KFold(n_splits=10)
+    for train_ind, test_ind in kFold.split(X_poly, y):
+        X_train = X_poly[train_ind]
+        X_test = X_poly[test_ind]
+        y_train = y[train_ind]
+        y_test = y[test_ind]
+        print("Nesto")
     plt.show()
