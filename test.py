@@ -9,8 +9,9 @@ from sklearn.preprocessing import StandardScaler, PolynomialFeatures
 SPLIT_COEFFICIENT = 0.8
 TRAINING_SIZE_MIN = 20
 TRAINING_SIZE_MAX = 601
-LAMBDA_POW_START = -2
-LAMBDA_POW_END = 3
+LAMBDA_POW_START = -10
+LAMBDA_POW_END = 10
+POLYNOMIAL_DEGREE = 2
 
 def expand_with_ones(X):
     X_out = np.ones((X.shape[0], X.shape[1] + 1))
@@ -156,7 +157,7 @@ if __name__ == "__main__":
 
 
     std_scaler = StandardScaler()
-    poly_feat = PolynomialFeatures(2)
+    poly_feat = PolynomialFeatures(POLYNOMIAL_DEGREE)
     X_poly = poly_feat.fit_transform(X)
     X_train, y_train, X_test, y_test = split_data(X_poly, y, SPLIT_COEFFICIENT)
 
@@ -183,6 +184,8 @@ if __name__ == "__main__":
     print("Train mean squared error for lasso is {}, test is {}".
           format(mse_train_l, mse_test_l))
 
+
+    '''
     kFold = KFold(n_splits=10)
     for train_ind, test_ind in kFold.split(X_poly, y):
         X_train = X_poly[train_ind]
@@ -190,4 +193,5 @@ if __name__ == "__main__":
         y_train = y[train_ind]
         y_test = y[test_ind]
         print("Nesto")
+    '''
     plt.show()
