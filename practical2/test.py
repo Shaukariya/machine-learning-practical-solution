@@ -8,6 +8,9 @@ from sklearn.preprocessing import StandardScaler, PolynomialFeatures
 from sklearn.datasets import load_iris
 from abc import ABC, abstractmethod
 from scipy.stats import norm
+from scipy.stats import bernoulli
+
+NUM_TESTS = 2
 
 
 class NBCFeatureParam(ABC):
@@ -31,6 +34,16 @@ class NBCFeatureParamReal(NBCFeatureParam):
 
     def get_probability(self, val):
         return self._prob.pdf(val)
+
+
+class NBCFeatureParamBinary(NBCFeatureParam):
+    def __init__(self, feature_idx: int, theta: float):
+        super().__init__(feature_idx)
+        self._theta = theta
+        self._prob = bernoulli(theta)
+
+    def get_probability(self, val):
+        return self._prob.pmf(val)
 
 
 def data_shuffle(X, y):
@@ -62,34 +75,45 @@ class NBC:
 
         return feature_params_a
 
+    def generate_binary_params(Xtrain, label_indices, binary_features_isx):
+        feature_params_a = []
+        mean_features = np.mean(Xtrain[label_indices, :], axis=0)
+        for idx_feature, mean_feature in enumerate(mean_features):
+            feature_param = NBCFeatureParamBinary(binary_features_isx[idx_feature],
+                                                  mean_feature)
+            feature_params_a.append(feature_param)
+
+        return feature_params_a
 
     # TODO: Change so it adds zero elements
     def fit(self, Xtrain, ytrain):
         unique_labels, count_elements = np.unique(ytrain, return_counts=True)
-        print(unique_labels)
-        print(count_elements)
         num_elements_d = dict(zip(unique_labels, count_elements))
-        print(ytrain.size)
         self._pi = {key: value/ytrain.size for key, value in num_elements_d.items()}
-        print(self._pi)
 
         label_feature_params = []
-        real_features_idx = np.squeeze(np.argwhere(self._feature_types == 'r'))
+        real_features_idx = np.squeeze(np.argwhere(self._feature_types == 'r'), 1)
+        binary_features_idx = np.squeeze(np.argwhere(self._feature_types == 'b'), 1)
         Xtrain_real_features = Xtrain[:, real_features_idx]
+        Xtrain_binary_features = Xtrain[:, binary_features_idx]
 
         for label in unique_labels:
             label_indices = np.squeeze(np.argwhere(ytrain == label))
-            feature_params_a = NBC.generate_real_params(Xtrain_real_features,
-                                                        label_indices, real_features_idx)
-            label_feature_params.append(feature_params_a)
+            feature_params_real = NBC.generate_real_params(Xtrain_real_features,
+                                                           label_indices, real_features_idx)
+            feature_params_bin = NBC.generate_binary_params(Xtrain_binary_features,
+                                                          label_indices, binary_features_idx)
+
+            label_feature_params.append(feature_params_bin + feature_params_real)
         self._label_feature_params = label_feature_params
 
     def get_features_cond_prob(self, label, x_new):
         label_feature_params = self._label_feature_params[label]
         features_prob = 1
         for idx, label_feature_param in enumerate(label_feature_params):
-            features_prob = label_feature_param.get_probability(x_new[idx])\
-                            * features_prob
+            features_prob = label_feature_param.get_probability\
+                                (x_new[label_feature_param._feature_idx])\
+                                        * features_prob
         return features_prob
 
     def get_cond_prob(self, label, x_new):
@@ -113,18 +137,32 @@ class NBC:
         return np.array(ytest)
 
 
+def load_and_test():
+    X, y = cp.load(open('voting.pickle', 'rb'))
+    Xtrain, ytrain, Xtest, ytest = data_shuffle(X, y);
+    test_accuracy_a = []
+    N, D = Xtrain.shape
+    for test_per in range(10, 101, 10):
+        nbc = NBC(feature_types=['b'] * D, num_classes=2)
+        size = int(test_per / 100 * N)
+        print("Percent {} N {} ".format(size, N))
+        nbc.fit(Xtrain[:size,:], ytrain[:size])
+        yhat = nbc.predict(Xtest)
+        test_accuracy = np.mean(yhat == ytest)
+        test_accuracy_a.append(test_accuracy)
+    return np.array(test_accuracy_a)
+
+
 if __name__ == "__main__":
     print("Hello world")
     iris = load_iris()
-    X, y = iris['data'], iris['target']
-    #X, y = cp.load(open('voting.pickle', 'rb'))
-    Xtrain, ytrain, Xtest, ytest = data_shuffle(X, y);
-    nbc = NBC(feature_types=['r', 'r', 'r', 'r'], num_classes=3)
-    nbc.fit(Xtrain, ytrain)
-    yhat = nbc.predict(Xtest)
-    print(yhat)
-    print(ytest)
-    test_accuracy = np.mean(yhat == ytest)
-    print(test_accuracy)
+    #X, y = iris['data'], iris['target']
+    first = True
+    for num_test in range(NUM_TESTS):
+        precision = load_and_test()
+        precision_a = precision if first else np.vstack((precision_a, precision))
+        first = False
+        print("Test advance {}".format((num_test+1)/NUM_TESTS))
+    print(precision_a.mean(axis=0))
 
 
