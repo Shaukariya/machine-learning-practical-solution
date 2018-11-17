@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from scipy.stats import norm
 from scipy.stats import bernoulli
 
-NUM_TESTS = 2
+NUM_TESTS = 200
 TEST_PERCENT_START = 10
 TEST_PERCENT_END = 100
 TEST_PERCENT_INC = 10
@@ -44,29 +44,40 @@ class NBCFeatureParamBinary(NBCFeatureParam):
         return self._prob.pmf(val)
 
 
-
 class NBC:
     def __init__(self, feature_types: list, num_classes: int = 4):
         self._feature_types = np.array(feature_types)
-        self._num_classes =num_classes
+        self._num_classes = num_classes
         self._pi = []
+        self._labels = []
+        self._map_labels = {}
 
     @staticmethod
     def generate_real_params(Xtrain, label_indices, real_features_idx):
         feature_params_a = []
-        mean_features = np.mean(Xtrain[label_indices, :], axis=0)
-        std_dev_features = np.std(Xtrain[label_indices, :], axis=0)
+        if label_indices.size == 0:
+            return []
+        if label_indices.size == 1:
+            mean_features = Xtrain[label_indices, :]
+            std_dev_features = np.repeat(0, mean_features.size)
+        else:
+            mean_features = np.mean(Xtrain[label_indices, :], axis=0)
+            std_dev_features = np.std(Xtrain[label_indices, :], axis=0)
         for idx_feature, mean_feature in enumerate(mean_features):
             std_def_feature = std_dev_features[idx_feature]
             feature_param = NBCFeatureParamReal(real_features_idx[idx_feature],
                                                 mean_feature, std_def_feature)
             feature_params_a.append(feature_param)
-
         return feature_params_a
 
     def generate_binary_params(Xtrain, label_indices, binary_features_isx):
         feature_params_a = []
-        mean_features = np.mean(Xtrain[label_indices, :], axis=0)
+        if label_indices.size == 0:
+            return []
+        if label_indices.size == 1:
+            mean_features = Xtrain[label_indices, :]
+        else:
+            mean_features = np.mean(Xtrain[label_indices, :], axis=0)
         for idx_feature, mean_feature in enumerate(mean_features):
             feature_param = NBCFeatureParamBinary(binary_features_isx[idx_feature],
                                                   mean_feature)
@@ -74,11 +85,32 @@ class NBC:
 
         return feature_params_a
 
-    # TODO: Change so it adds zero elements
-    def fit(self, Xtrain, ytrain):
+    def remap_labels_and_freq(self, ytrain):
         unique_labels, count_elements = np.unique(ytrain, return_counts=True)
-        num_elements_d = dict(zip(unique_labels, count_elements))
-        self._pi = {key: value/ytrain.size for key, value in num_elements_d.items()}
+        (N,) = unique_labels.shape
+        unique_labels = np.concatenate((unique_labels, np.repeat(None, self._num_classes - N)))
+        count_elements = np.concatenate((count_elements, np.repeat(0, self._num_classes - N)))
+
+        self._labels = unique_labels
+        self._map_labels = {label: idx for idx, label in enumerate(unique_labels)}
+        self._pi = [count_elem / ytrain.size for count_elem in count_elements]
+
+    def map_label(self, label):
+        return self._map_labels[label]
+
+    def map_labels(self, y):
+        vect_map = np.vectorize(self.map_label)
+        return vect_map(y)
+
+    def reverse_map_label(self, label):
+        return self._labels[label]
+
+    def reverse_map_labels(self, y):
+        vect_map = np.vectorize(self.reverse_map_label)
+        return vect_map(y)
+
+    def fit(self, Xtrain, ytrain):
+        self.remap_labels_and_freq(ytrain)
 
         label_feature_params = []
         real_features_idx = np.squeeze(np.argwhere(self._feature_types == 'r'), 1)
@@ -86,7 +118,9 @@ class NBC:
         Xtrain_real_features = Xtrain[:, real_features_idx]
         Xtrain_binary_features = Xtrain[:, binary_features_idx]
 
-        for label in unique_labels:
+        ytrain = self.map_labels(ytrain)
+
+        for label in range(0, self._num_classes):
             label_indices = np.squeeze(np.argwhere(ytrain == label))
             feature_params_real = NBC.generate_real_params(Xtrain_real_features,
                                                            label_indices, real_features_idx)
@@ -123,7 +157,7 @@ class NBC:
         ytest = []
         for idx in range(0, N):
             ytest.append(self.get_max_cond_prob(np.squeeze(Xtest[idx, :])))
-        return np.array(ytest)
+        return np.array(self.reverse_map_labels(ytest))
 
 
 def data_shuffle(X, y):
@@ -153,8 +187,7 @@ def choose_and_test_data(X, y):
     N, D = Xtrain.shape
     for test_per in range(TEST_PERCENT_START, TEST_PERCENT_END + 1, TEST_PERCENT_INC):
         size = int(test_per / 100 * N)
-
-        nbc = NBC(feature_types=['r'] * D, num_classes=2)
+        nbc = NBC(feature_types=['r'] * D, num_classes=3)
         nbc.fit(Xtrain[:size,:], ytrain[:size])
         yhat = nbc.predict(Xtest)
         test_accuracies_nbc.append(np.mean(yhat == ytest))
