@@ -1,16 +1,16 @@
 import numpy as np
 import _pickle as cp
 import matplotlib.pyplot as plt
-import sklearn.linear_model as lm
-import sklearn.preprocessing
-from sklearn.model_selection import KFold
-from sklearn.preprocessing import StandardScaler, PolynomialFeatures
+from sklearn.linear_model import LogisticRegression
 from sklearn.datasets import load_iris
 from abc import ABC, abstractmethod
 from scipy.stats import norm
 from scipy.stats import bernoulli
 
 NUM_TESTS = 2
+TEST_PERCENT_START = 10
+TEST_PERCENT_END = 100
+TEST_PERCENT_INC = 10
 
 
 class NBCFeatureParam(ABC):
@@ -20,8 +20,6 @@ class NBCFeatureParam(ABC):
     @abstractmethod
     def get_probability(self, val):
         pass
-
-
 '''
 Class used for storing parameters about features of specific class.
 '''
@@ -46,15 +44,6 @@ class NBCFeatureParamBinary(NBCFeatureParam):
         return self._prob.pmf(val)
 
 
-def data_shuffle(X, y):
-    N, D = X.shape
-    Ntrain = int(0.8 * N)
-    shuffler = np.random.permutation(N)
-    Xtrain = X[shuffler[:Ntrain]]
-    ytrain = y[shuffler[:Ntrain]]
-    Xtest = X[shuffler[Ntrain:]]
-    ytest = y[shuffler[Ntrain:]]
-    return Xtrain, ytrain, Xtest, ytest
 
 class NBC:
     def __init__(self, feature_types: list, num_classes: int = 4):
@@ -103,7 +92,7 @@ class NBC:
                                                            label_indices, real_features_idx)
             feature_params_bin = NBC.generate_binary_params(Xtrain_binary_features,
                                                           label_indices, binary_features_idx)
-
+            # TODO: reorder features (arrays)
             label_feature_params.append(feature_params_bin + feature_params_real)
         self._label_feature_params = label_feature_params
 
@@ -137,32 +126,70 @@ class NBC:
         return np.array(ytest)
 
 
-def load_and_test():
-    X, y = cp.load(open('voting.pickle', 'rb'))
-    Xtrain, ytrain, Xtest, ytest = data_shuffle(X, y);
-    test_accuracy_a = []
+def data_shuffle(X, y):
+    N, D = X.shape
+    Ntrain = int(0.8 * N)
+    shuffler = np.random.permutation(N)
+    Xtrain = X[shuffler[:Ntrain]]
+    ytrain = y[shuffler[:Ntrain]]
+    Xtest = X[shuffler[Ntrain:]]
+    ytest = y[shuffler[Ntrain:]]
+    return Xtrain, ytrain, Xtest, ytest
+
+
+def load_data(is_iris: bool):
+    if is_iris:
+        iris = load_iris()
+        X, y = iris['data'], iris['target']
+    else:
+        X, y = cp.load(open('voting.pickle', 'rb'))
+    return X, y
+
+
+def choose_and_test_data(X, y):
+    Xtrain, ytrain, Xtest, ytest = data_shuffle(X, y)
+    test_accuracies_nbc = []
+    test_accuracies_lr = []
     N, D = Xtrain.shape
-    for test_per in range(10, 101, 10):
-        nbc = NBC(feature_types=['b'] * D, num_classes=2)
+    for test_per in range(TEST_PERCENT_START, TEST_PERCENT_END + 1, TEST_PERCENT_INC):
         size = int(test_per / 100 * N)
-        print("Percent {} N {} ".format(size, N))
+
+        nbc = NBC(feature_types=['r'] * D, num_classes=2)
         nbc.fit(Xtrain[:size,:], ytrain[:size])
         yhat = nbc.predict(Xtest)
-        test_accuracy = np.mean(yhat == ytest)
-        test_accuracy_a.append(test_accuracy)
-    return np.array(test_accuracy_a)
+        test_accuracies_nbc.append(np.mean(yhat == ytest))
+
+        lr = LogisticRegression(penalty='l2',C=1e1, solver='lbfgs',
+                                multi_class='multinomial')
+        lr.fit(Xtrain[:size, :], ytrain[:size])
+        yhat = lr.predict(Xtest)
+        test_accuracies_lr.append(np.mean(yhat == ytest))
+    return np.array(test_accuracies_nbc), np.array(test_accuracies_lr)
 
 
 if __name__ == "__main__":
-    print("Hello world")
-    iris = load_iris()
-    #X, y = iris['data'], iris['target']
+    X, y = load_data(is_iris=True)
     first = True
     for num_test in range(NUM_TESTS):
-        precision = load_and_test()
-        precision_a = precision if first else np.vstack((precision_a, precision))
+        test_acc_nbc, test_acc_lr = choose_and_test_data(X, y)
+        test_acc_nbc_a, test_acc_lr_a = (test_acc_nbc, test_acc_lr) \
+            if first else (np.vstack((test_acc_nbc_a, test_acc_nbc)), \
+                                    np.vstack((test_acc_lr_a, test_acc_lr)))
         first = False
         print("Test advance {}".format((num_test+1)/NUM_TESTS))
-    print(precision_a.mean(axis=0))
-
+    test_acc_nbc = test_acc_nbc_a.mean(axis=0)
+    test_acc_lr = test_acc_lr_a.mean(axis=0)
+    print("Accuracy advance NBC:")
+    print(test_acc_nbc)
+    print("Accuracy advance LR")
+    print(test_acc_lr)
+    fig = plt.figure(0)
+    plt.plot(np.arange(TEST_PERCENT_START, TEST_PERCENT_END + 1, TEST_PERCENT_INC),
+             test_acc_nbc, 'r--',
+             np.arange(TEST_PERCENT_START, TEST_PERCENT_END + 1, TEST_PERCENT_INC),
+             test_acc_lr, 'b-')
+    plt.gca().legend(('Naive Bayes classifier', 'Logistic regression'))
+    plt.xlabel('Percent of training set')
+    plt.ylabel('Average classification error')
+    plt.show()
 
