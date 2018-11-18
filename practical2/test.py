@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from scipy.stats import norm
 from scipy.stats import bernoulli
 
-NUM_TESTS = 200
+NUM_TESTS = 50
 TEST_PERCENT_START = 10
 TEST_PERCENT_END = 100
 TEST_PERCENT_INC = 10
@@ -16,9 +16,6 @@ ZERO_LIMIT = 1e-3
 LAPLACE_ALPHA = 1e-3
 
 class NBCFeatureParam(ABC):
-    def __init__(self, feature_idx: int):
-        self._feature_idx = feature_idx
-
     @abstractmethod
     def get_probability(self, val):
         pass
@@ -26,8 +23,7 @@ class NBCFeatureParam(ABC):
 Class used for storing parameters about features of specific class.
 '''
 class NBCFeatureParamReal(NBCFeatureParam):
-    def __init__(self, feature_idx: int, mean: float, std: float):
-        super().__init__(feature_idx)
+    def __init__(self, mean: float, std: float):
         self._mean = mean
         self._std = std
         self._prob = norm(mean, std)
@@ -40,13 +36,17 @@ class NBCFeatureParamReal(NBCFeatureParam):
 
 
 class NBCFeatureParamBinary(NBCFeatureParam):
-    def __init__(self, feature_idx: int, theta: float):
-        super().__init__(feature_idx)
+    def __init__(self, theta: float):
         self._theta = theta
         self._prob = bernoulli(theta)
 
     def get_probability(self, val):
         return self._prob.pmf(val)
+
+
+class NBCFeatureParamDummyZero(NBCFeatureParam):
+    def get_probability(self, val):
+        return ZERO_LIMIT * ZERO_LIMIT
 
 
 class NBC:
@@ -58,7 +58,7 @@ class NBC:
         self._map_labels = {}
 
     @staticmethod
-    def generate_real_params(Xtrain, label_indices, real_features_idx):
+    def generate_real_params(Xtrain, label_indices):
         feature_params_a = []
         if label_indices.size == 0:
             return []
@@ -71,8 +71,7 @@ class NBC:
         std_dev_features[std_dev_features == 0] = ZERO_LIMIT
         for idx_feature, mean_feature in enumerate(mean_features):
             std_def_feature = std_dev_features[idx_feature]
-            feature_param = NBCFeatureParamReal(real_features_idx[idx_feature],
-                                                mean_feature, std_def_feature)
+            feature_param = NBCFeatureParamReal(mean_feature, std_def_feature)
             feature_params_a.append(feature_param)
         return feature_params_a
 
@@ -88,7 +87,7 @@ class NBC:
         mean_features = mean_feat_lap_fun(sum_col, N_label, LAPLACE_ALPHA)
         return mean_features
 
-    def generate_binary_params(self, Xtrain, label_indices, binary_features_isx):
+    def generate_binary_params(self, Xtrain, label_indices):
         feature_params_a = []
         if label_indices.size == 0:
             return []
@@ -97,8 +96,7 @@ class NBC:
         else:
             mean_features = self.laplace_smoothing_estimate(Xtrain[label_indices, :])
         for idx_feature, mean_feature in enumerate(mean_features):
-            feature_param = NBCFeatureParamBinary(binary_features_isx[idx_feature],
-                                                  mean_feature)
+            feature_param = NBCFeatureParamBinary(mean_feature)
             feature_params_a.append(feature_param)
 
         return feature_params_a
@@ -132,7 +130,7 @@ class NBC:
 
     def fit(self, Xtrain, ytrain):
         self.remap_labels_and_freq(ytrain)
-
+        _, D = Xtrain.shape
         label_feature_params = []
         real_features_idx = np.squeeze(np.argwhere(self._feature_types == 'r'), 1)
         binary_features_idx = np.squeeze(np.argwhere(self._feature_types == 'b'), 1)
@@ -144,20 +142,24 @@ class NBC:
         for label in range(0, self._num_classes):
             label_indices = np.squeeze(np.argwhere(ytrain == label))
             feature_params_real = NBC.generate_real_params(Xtrain_real_features,
-                                                           label_indices, real_features_idx)
+                                                           label_indices)
             feature_params_bin = self.generate_binary_params(Xtrain_binary_features,
-                                                          label_indices, binary_features_idx)
-            # TODO: reorder features (arrays)
-            label_feature_params.append(feature_params_bin + feature_params_real)
+                                                             label_indices)
+            label_features_params = np.repeat(NBCFeatureParamDummyZero(), D)
+            if label_indices.size > 0:
+                label_features_params[real_features_idx] = feature_params_real
+                label_features_params[binary_features_idx] = feature_params_bin
+            label_feature_params.append(label_features_params)
         self._label_feature_params = label_feature_params
+
+    def feature_cond_prob(self, label_feature_param, x_new_val):
+        return math.log(label_feature_param.get_probability(x_new_val))
 
     def get_features_cond_prob(self, label, x_new):
         label_feature_params = self._label_feature_params[label]
-        features_prob = 0
-        for idx, label_feature_param in enumerate(label_feature_params):
-            features_prob = features_prob + math.log(label_feature_param.get_probability
-                                (x_new[label_feature_param._feature_idx]))
-        return features_prob
+        feature_cond_prob_v = np.vectorize(self.feature_cond_prob)
+        feature_cond_probs = feature_cond_prob_v(label_feature_params, x_new)
+        return np.sum(feature_cond_probs)
 
     def get_cond_prob(self, label, x_new):
         return math.log(self._pi[label]) + self.get_features_cond_prob(label, x_new)
@@ -173,11 +175,7 @@ class NBC:
         return max_prob_label
 
     def predict(self, Xtest):
-        N, D = Xtest.shape
-        ytest = []
-        for idx in range(0, N):
-            ytest.append(self.get_max_cond_prob(np.squeeze(Xtest[idx, :])))
-        print(self._labels)
+        ytest = np.apply_along_axis(self.get_max_cond_prob, 1, Xtest)
         return np.array(self.reverse_map_labels(ytest))
 
 
@@ -208,7 +206,7 @@ def choose_and_test_data(X, y):
     N, D = Xtrain.shape
     for test_per in range(TEST_PERCENT_START, TEST_PERCENT_END + 1, TEST_PERCENT_INC):
         size = int(test_per / 100 * N)
-        nbc = NBC(feature_types=['r'] * D, num_classes=3)
+        nbc = NBC(feature_types=['b'] * D, num_classes=2)
         nbc.fit(Xtrain[:size,:], ytrain[:size])
         yhat = nbc.predict(Xtest)
         test_accuracies_nbc.append(np.mean(yhat != ytest))
@@ -222,7 +220,7 @@ def choose_and_test_data(X, y):
 
 
 if __name__ == "__main__":
-    X, y = load_data(is_iris=True)
+    X, y = load_data(is_iris=False)
     first = True
     for num_test in range(NUM_TESTS):
         test_acc_nbc, test_acc_lr = choose_and_test_data(X, y)
