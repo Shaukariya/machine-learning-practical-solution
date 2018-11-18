@@ -1,6 +1,7 @@
 import numpy as np
 import _pickle as cp
 import matplotlib.pyplot as plt
+import math
 from sklearn.linear_model import LogisticRegression
 from sklearn.datasets import load_iris
 from abc import ABC, abstractmethod
@@ -11,7 +12,8 @@ NUM_TESTS = 200
 TEST_PERCENT_START = 10
 TEST_PERCENT_END = 100
 TEST_PERCENT_INC = 10
-
+ZERO_LIMIT = 1e-3
+LAPLACE_ALPHA = 1e-3
 
 class NBCFeatureParam(ABC):
     def __init__(self, feature_idx: int):
@@ -31,7 +33,10 @@ class NBCFeatureParamReal(NBCFeatureParam):
         self._prob = norm(mean, std)
 
     def get_probability(self, val):
-        return self._prob.pdf(val)
+        ret_val = self._prob.pdf(val)
+        if ret_val == 0:
+            return ZERO_LIMIT
+        return ret_val
 
 
 class NBCFeatureParamBinary(NBCFeatureParam):
@@ -63,6 +68,7 @@ class NBC:
         else:
             mean_features = np.mean(Xtrain[label_indices, :], axis=0)
             std_dev_features = np.std(Xtrain[label_indices, :], axis=0)
+        std_dev_features[std_dev_features == 0] = ZERO_LIMIT
         for idx_feature, mean_feature in enumerate(mean_features):
             std_def_feature = std_dev_features[idx_feature]
             feature_param = NBCFeatureParamReal(real_features_idx[idx_feature],
@@ -70,14 +76,26 @@ class NBC:
             feature_params_a.append(feature_param)
         return feature_params_a
 
-    def generate_binary_params(Xtrain, label_indices, binary_features_isx):
+    def laplace_smoothing(self, sum, N, alpha):
+        return (sum + alpha) / (N + alpha * self._num_classes)
+
+    def laplace_smoothing_estimate(self, Xtrain):
+        N_label, D = Xtrain.shape
+        if D == 0:
+            return []
+        sum_col = np.sum(Xtrain, axis=0)
+        mean_feat_lap_fun = np.vectorize(self.laplace_smoothing)
+        mean_features = mean_feat_lap_fun(sum_col, N_label, LAPLACE_ALPHA)
+        return mean_features
+
+    def generate_binary_params(self, Xtrain, label_indices, binary_features_isx):
         feature_params_a = []
         if label_indices.size == 0:
             return []
         if label_indices.size == 1:
             mean_features = Xtrain[label_indices, :]
         else:
-            mean_features = np.mean(Xtrain[label_indices, :], axis=0)
+            mean_features = self.laplace_smoothing_estimate(Xtrain[label_indices, :])
         for idx_feature, mean_feature in enumerate(mean_features):
             feature_param = NBCFeatureParamBinary(binary_features_isx[idx_feature],
                                                   mean_feature)
@@ -93,7 +111,8 @@ class NBC:
 
         self._labels = unique_labels
         self._map_labels = {label: idx for idx, label in enumerate(unique_labels)}
-        self._pi = [count_elem / ytrain.size for count_elem in count_elements]
+        self._pi = [self.laplace_smoothing(count_elem, ytrain.size, LAPLACE_ALPHA)
+                    for count_elem in count_elements]
 
     def map_label(self, label):
         return self._map_labels[label]
@@ -103,6 +122,8 @@ class NBC:
         return vect_map(y)
 
     def reverse_map_label(self, label):
+        if self._labels[label] is None:
+            return self._labels[0]
         return self._labels[label]
 
     def reverse_map_labels(self, y):
@@ -124,7 +145,7 @@ class NBC:
             label_indices = np.squeeze(np.argwhere(ytrain == label))
             feature_params_real = NBC.generate_real_params(Xtrain_real_features,
                                                            label_indices, real_features_idx)
-            feature_params_bin = NBC.generate_binary_params(Xtrain_binary_features,
+            feature_params_bin = self.generate_binary_params(Xtrain_binary_features,
                                                           label_indices, binary_features_idx)
             # TODO: reorder features (arrays)
             label_feature_params.append(feature_params_bin + feature_params_real)
@@ -132,18 +153,17 @@ class NBC:
 
     def get_features_cond_prob(self, label, x_new):
         label_feature_params = self._label_feature_params[label]
-        features_prob = 1
+        features_prob = 0
         for idx, label_feature_param in enumerate(label_feature_params):
-            features_prob = label_feature_param.get_probability\
-                                (x_new[label_feature_param._feature_idx])\
-                                        * features_prob
+            features_prob = features_prob + math.log(label_feature_param.get_probability
+                                (x_new[label_feature_param._feature_idx]))
         return features_prob
 
     def get_cond_prob(self, label, x_new):
-        return self._pi[label] * self.get_features_cond_prob(label, x_new)
+        return math.log(self._pi[label]) + self.get_features_cond_prob(label, x_new)
 
     def get_max_cond_prob(self, x_new):
-        cur_max_prob = 0
+        cur_max_prob = -math.inf
         max_prob_label = -1
         for label in range(0, self._num_classes):
             cur_prob = self.get_cond_prob(label, x_new)
@@ -157,6 +177,7 @@ class NBC:
         ytest = []
         for idx in range(0, N):
             ytest.append(self.get_max_cond_prob(np.squeeze(Xtest[idx, :])))
+        print(self._labels)
         return np.array(self.reverse_map_labels(ytest))
 
 
@@ -190,13 +211,13 @@ def choose_and_test_data(X, y):
         nbc = NBC(feature_types=['r'] * D, num_classes=3)
         nbc.fit(Xtrain[:size,:], ytrain[:size])
         yhat = nbc.predict(Xtest)
-        test_accuracies_nbc.append(np.mean(yhat == ytest))
+        test_accuracies_nbc.append(np.mean(yhat != ytest))
 
         lr = LogisticRegression(penalty='l2',C=1e1, solver='lbfgs',
-                                multi_class='multinomial')
+                                multi_class='ovr')
         lr.fit(Xtrain[:size, :], ytrain[:size])
         yhat = lr.predict(Xtest)
-        test_accuracies_lr.append(np.mean(yhat == ytest))
+        test_accuracies_lr.append(np.mean(yhat != ytest))
     return np.array(test_accuracies_nbc), np.array(test_accuracies_lr)
 
 
