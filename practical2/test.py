@@ -7,13 +7,15 @@ from sklearn.datasets import load_iris
 from abc import ABC, abstractmethod
 from scipy.stats import norm
 from scipy.stats import bernoulli
+from scipy.stats import multinomial
 
-NUM_TESTS = 10
+NUM_TESTS = 30
 TEST_PERCENT_START = 10
 TEST_PERCENT_END = 100
 TEST_PERCENT_INC = 10
 ZERO_LIMIT = 1e-3
 LAPLACE_ALPHA = 1e-3
+MULTINARY_NUMBER_FEAT = 2
 
 
 class NBCFeatureParam(ABC):
@@ -49,6 +51,17 @@ class NBCFeatureParamBinary(NBCFeatureParam):
         return self._prob.pmf(val)
 
 
+class NBCFeatureParamMultinomial(NBCFeatureParam):
+    def __init__(self, theta: np.ndarray):
+        self._theta = theta
+        self._prob = multinomial(n=1, p=theta)
+
+    def get_probability(self, val):
+        var_arr = np.repeat(0, self._theta.size)
+        var_arr[int(val)] = 1
+        return self._prob.pmf(var_arr)
+
+
 class NBC:
     def __init__(self, feature_types: list, num_classes: int = 4):
         self._feature_types = np.array(feature_types)
@@ -58,14 +71,10 @@ class NBC:
         self._map_labels = {}
 
     @staticmethod
-    def generate_real_params(Xtrain, label_indices):
+    def generate_real_params(Xtrain):
         feature_params_a = []
-        if label_indices.size == 1:
-            mean_features = Xtrain[label_indices, :]
-            std_dev_features = np.repeat(0, mean_features.size)
-        else:
-            mean_features = np.mean(Xtrain[label_indices, :], axis=0)
-            std_dev_features = np.std(Xtrain[label_indices, :], axis=0)
+        mean_features = np.mean(Xtrain, axis=0)
+        std_dev_features = np.std(Xtrain, axis=0)
         std_dev_features[std_dev_features == 0] = ZERO_LIMIT
         for idx_feature, mean_feature in enumerate(mean_features):
             std_def_feature = std_dev_features[idx_feature]
@@ -76,6 +85,10 @@ class NBC:
     def laplace_smoothing(self, sum, N, alpha):
         return (sum + alpha) / (N + alpha * self._num_classes)
 
+    def laplace_smoothing_estimate_one(self, count_features, N):
+        ls_v = np.vectorize(self.laplace_smoothing)
+        return ls_v(count_features, N, LAPLACE_ALPHA)
+
     def laplace_smoothing_estimate(self, Xtrain):
         N_label, D = Xtrain.shape
         if D == 0:
@@ -85,14 +98,26 @@ class NBC:
         mean_features = mean_feat_lap_fun(sum_col, N_label, LAPLACE_ALPHA)
         return mean_features
 
-    def generate_binary_params(self, Xtrain, label_indices):
+    def generate_binary_params(self, Xtrain):
         feature_params_a = []
-        if label_indices.size == 1:
-            mean_features = Xtrain[label_indices, :]
-        else:
-            mean_features = self.laplace_smoothing_estimate(Xtrain[label_indices, :])
-        for idx_feature, mean_feature in enumerate(mean_features):
+        mean_features = self.laplace_smoothing_estimate(Xtrain)
+        for mean_feature in mean_features:
             feature_param = NBCFeatureParamBinary(mean_feature)
+            feature_params_a.append(feature_param)
+
+        return feature_params_a
+
+    def generate_multinary_params(self, Xtrain):
+        feature_params_a = []
+        N, D = Xtrain.shape
+        features_count = np.zeros((MULTINARY_NUMBER_FEAT, D))
+        for col in range(0, D):
+            unique_features, count_features = np.unique(Xtrain[:, col].astype(int),
+                                                        return_counts=True)
+            features_count[unique_features, col] = self.laplace_smoothing_estimate_one(count_features, N)
+        features_count[features_count == 0] = ZERO_LIMIT
+        for col in range(0, D):
+            feature_param = NBCFeatureParamMultinomial(features_count[:, col])
             feature_params_a.append(feature_param)
 
         return feature_params_a
@@ -128,8 +153,10 @@ class NBC:
         self.remap_labels_and_freq(ytrain)
         real_features_idx = np.squeeze(np.argwhere(self._feature_types == 'r'), 1)
         binary_features_idx = np.squeeze(np.argwhere(self._feature_types == 'b'), 1)
+        multinary_features_idx = np.squeeze(np.argwhere(self._feature_types == 'm'), 1)
         Xtrain_real_features = Xtrain[:, real_features_idx]
         Xtrain_binary_features = Xtrain[:, binary_features_idx]
+        Xtrain_multinary_features = Xtrain[:, multinary_features_idx]
 
         ytrain = self.map_labels(ytrain)
 
@@ -139,12 +166,14 @@ class NBC:
             label_indices = np.squeeze(np.argwhere(ytrain == label))
             label_features_params = np.repeat(NBCFeatureParamDummyZero(), D)
             if label_indices.size > 0:
-                feature_params_real = NBC.generate_real_params(Xtrain_real_features,
-                                                               label_indices)
-                feature_params_bin = self.generate_binary_params(Xtrain_binary_features,
-                                                                 label_indices)
+                if label_indices.size == 1:
+                    label_indices = np.array([label_indices])
+                feature_params_real = NBC.generate_real_params(Xtrain_real_features[label_indices, :])
+                feature_params_bin = self.generate_binary_params(Xtrain_binary_features[label_indices, :])
+                feature_params_mul = self.generate_multinary_params(Xtrain_multinary_features[label_indices, :])
                 label_features_params[real_features_idx] = feature_params_real
                 label_features_params[binary_features_idx] = feature_params_bin
+                label_features_params[multinary_features_idx] = feature_params_mul
             label_feature_params.append(label_features_params)
         self._label_feature_params = label_feature_params
 
