@@ -9,7 +9,7 @@ from scipy.stats import norm
 from scipy.stats import bernoulli
 from scipy.stats import multinomial
 
-NUM_TESTS = 30
+NUM_TESTS = 200
 TEST_PERCENT_START = 10
 TEST_PERCENT_END = 100
 TEST_PERCENT_INC = 10
@@ -230,13 +230,13 @@ def choose_and_test_data(X, y):
     N, D = Xtrain.shape
     for test_per in range(TEST_PERCENT_START, TEST_PERCENT_END + 1, TEST_PERCENT_INC):
         size = int(test_per / 100 * N)
-        nbc = NBC(feature_types=['b'] * D, num_classes=2)
+        nbc = NBC(feature_types=['r'] * D, num_classes=3)
         nbc.fit(Xtrain[:size,:], ytrain[:size])
         yhat = nbc.predict(Xtest)
         test_accuracies_nbc.append(np.mean(yhat != ytest))
 
-        lr = LogisticRegression(penalty='l2',C=1e1, solver='lbfgs',
-                                multi_class='ovr')
+        lr = LogisticRegression(penalty='l2',C=5, solver='lbfgs',
+                                multi_class='multinomial', max_iter=1000)
         lr.fit(Xtrain[:size, :], ytrain[:size])
         yhat = lr.predict(Xtest)
         test_accuracies_lr.append(np.mean(yhat != ytest))
@@ -244,7 +244,7 @@ def choose_and_test_data(X, y):
 
 
 if __name__ == "__main__":
-    X, y = load_data(is_iris=False)
+    X, y = load_data(is_iris=True)
     first = True
     for num_test in range(NUM_TESTS):
         test_acc_nbc, test_acc_lr = choose_and_test_data(X, y)
