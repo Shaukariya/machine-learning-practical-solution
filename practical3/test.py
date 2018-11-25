@@ -38,20 +38,20 @@ def conv2dl2(x, W):
 def max_pool_2x2(x):
     return tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
-
-if __name__ == "__main__":
-    from tensorflow.examples.tutorials.mnist import input_data
-    mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
-
-    '''
+def visualize_layer(W):
     fig = plt.figure()
     for i in range(25):
         ax = fig.add_subplot(5, 5, i + 1)
         ax.set_xticks(())
         ax.set_yticks(())
-        ax.imshow(x_train[i].reshape(28, 28), cmap='Greys_r')
+        ax.imshow(W[:, :, :, i].reshape(12, 12), cmap='Greys_r')
     fig.show()
-'''
+
+
+if __name__ == "__main__":
+    from tensorflow.examples.tutorials.mnist import input_data
+    mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
+
     # Set up placeholders
     x = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
     y_ = tf.placeholder(tf.float32, shape=[None, 10])
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     h_conv2 = tf.nn.relu(conv2dl2(h_conv1, W_conv2) + b_conv2)
 
     h_pool2 = max_pool_2x2(h_conv2)
-    # 9 / 2 but same -> 10 / 2 = 5
+    # 9 / 2 but same -> 10 / 2 = 5, pool operation reduces dimension.
     h_pool2_flat = tf.reshape(h_pool2, [-1, 5 * 5 * 64])
 
     W_fc1 = weight_variable([5 * 5 * 64, 1024])
@@ -110,6 +110,8 @@ if __name__ == "__main__":
                 print('Step {}, validation accuracy {:.3f}'.format(i + 1, valid_accs[i // TEST_ID]))
         x_test, y_test = get_tests(10000, False)
         print(sess.run(accuracy, feed_dict={x: x_test, y_: y_test, keep_prob: 1.0}))
+        W = W_conv1.eval(sess)
+        visualize_layer(W)
 
     print(train_accs)
     print(valid_accs)
