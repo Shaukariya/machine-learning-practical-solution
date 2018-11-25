@@ -4,19 +4,21 @@ import matplotlib.pyplot as plt
 import math
 
 BATCH_SIZE = 50
-TEST_ID = 50
+NUM_BATCHES = 5000
+TEST_ID = 100
+TEST_SIZE = 2000
 
 
-def reshape_data(X, y):
-    N = X.shape[0]
-    X = np.reshape(X, (N, 28, 28, 1))
-    y_oh = np.zeros((N, 10))
-    y_oh[np.arange(N), y] = 1
-    return X, y_oh
+def get_tests(num_tests: int, is_valid: bool=True):
+    images = mnist.validation.images if is_valid else mnist.test.images
+    labels = mnist.validation.labels if is_valid else mnist.test.labels
+    x_valid = np.reshape(images[:num_tests, :], (num_tests, 28, 28, 1))
+    y_valid = labels[:num_tests, :]
+    return x_valid, y_valid
 
 
 def weight_variable(shape):
-    initial = tf.truncated_normal(shape, stddev=0.1)
+    initial = tf.truncated_normal(shape, stddev=0.05)
     return tf.Variable(initial)
 
 
@@ -38,8 +40,8 @@ def max_pool_2x2(x):
 
 
 if __name__ == "__main__":
-    (x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
-    x_train, x_test = x_train / 255.0, x_test / 255.0
+    from tensorflow.examples.tutorials.mnist import input_data
+    mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
 
     '''
     fig = plt.figure()
@@ -55,6 +57,7 @@ if __name__ == "__main__":
     y_ = tf.placeholder(tf.float32, shape=[None, 10])
 
     # Make the fully connected layer
+    # (28 - 12) / 2  + 1 = 9 is a size of matrix.
     W_conv1 = weight_variable([12, 12, 1, 25])
     b_conv1 = bias_variable([25])
     x_image = tf.reshape(x, [-1, 28, 28, 1])
@@ -66,6 +69,7 @@ if __name__ == "__main__":
     h_conv2 = tf.nn.relu(conv2dl2(h_conv1, W_conv2) + b_conv2)
 
     h_pool2 = max_pool_2x2(h_conv2)
+    # 9 / 2 but same -> 10 / 2 = 5
     h_pool2_flat = tf.reshape(h_pool2, [-1, 5 * 5 * 64])
 
     W_fc1 = weight_variable([5 * 5 * 64, 1024])
@@ -88,26 +92,24 @@ if __name__ == "__main__":
     train_accs = np.zeros(100)
     valid_accs = np.zeros(100)
 
-    x_train, y_train = reshape_data(x_train, y_train)
-    x_test, y_test = reshape_data(x_test, y_test)
+    x_valid, y_valid = get_tests(TEST_SIZE)
 
     with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
         sess.run(tf.global_variables_initializer())
-        N = x_train.shape[0]
-        for i in range(N // BATCH_SIZE):
-            batch_x = x_train[i * BATCH_SIZE:(i + 1) * BATCH_SIZE, :, :, :]
-            batch_y = y_train[i * BATCH_SIZE:(i + 1) * BATCH_SIZE, :]
+        for i in range(NUM_BATCHES):
+            batch_x, batch_y = mnist.train.next_batch(BATCH_SIZE)
+            batch_x = np.reshape(batch_x, (batch_x.shape[0], 28, 28, 1))
             sess.run(train_step, feed_dict={x: batch_x, y_: batch_y, keep_prob: 0.5})
-            if i % TEST_ID == 0:
-                print("Finished processing ", (i // 10) + 1, " batches.")
-
+            if i % TEST_ID == TEST_ID - 1:
+                print("Finished processing ", i + 1, " batches.")
                 train_accs[i // TEST_ID] = sess.run(accuracy, feed_dict={x: batch_x,
-                                                                    y_: batch_y, keep_prob: 1.0})
-
-                valid_accs[i // TEST_ID] = sess.run(accuracy, feed_dict={x: x_test[:1000],
-                                                                    y_: y_test[:1000], keep_prob: 1.0})
+                                                                         y_: batch_y, keep_prob: 1.0})
+                valid_accs[i // TEST_ID] = sess.run(accuracy, feed_dict={x: x_valid,
+                                                                         y_: y_valid, keep_prob: 1.0})
                 print('Step {}, training accuracy {:.3f}'.format(i + 1, train_accs[i // TEST_ID]))
                 print('Step {}, validation accuracy {:.3f}'.format(i + 1, valid_accs[i // TEST_ID]))
-        sess.close()
+        x_test, y_test = get_tests(10000, False)
+        print(sess.run(accuracy, feed_dict={x: x_test, y_: y_test, keep_prob: 1.0}))
+
     print(train_accs)
     print(valid_accs)
