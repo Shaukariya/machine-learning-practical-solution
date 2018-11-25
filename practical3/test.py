@@ -1,12 +1,13 @@
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
-import math
 
 BATCH_SIZE = 50
-NUM_BATCHES = 5000
+NUM_BATCHES = 3000
 TEST_ID = 100
 TEST_SIZE = 2000
+TOP_PATCHES = 12
+VISUAL_FILTERS = 5
 
 
 def get_tests(num_tests: int, is_valid: bool=True):
@@ -38,6 +39,7 @@ def conv2dl2(x, W):
 def max_pool_2x2(x):
     return tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
+
 def visualize_layer(W):
     fig = plt.figure()
     for i in range(25):
@@ -45,6 +47,33 @@ def visualize_layer(W):
         ax.set_xticks(())
         ax.set_yticks(())
         ax.imshow(W[:, :, :, i].reshape(12, 12), cmap='Greys_r')
+    fig.show()
+
+
+def visualize_patches(H):
+    sort_a = np.argsort(H, axis=None)
+    idx = np.unravel_index(sort_a, H.shape)
+    test_idx = np.zeros(TOP_PATCHES, dtype=np.int)
+    filter_idx = np.zeros(TOP_PATCHES, dtype=np.int)
+    activation_set = set()
+    cur_idx = 0
+    for i in range(idx[0].shape[0]):
+        tuple_act = (idx[0][i], idx[3][i])
+        if tuple_act not in activation_set:
+            test_idx[cur_idx] = tuple_act[0]
+            filter_idx[cur_idx] = tuple_act[1]
+            cur_idx += 1
+            activation_set.add(tuple_act)
+            if cur_idx >= TOP_PATCHES:
+                break
+    patches = H[test_idx, :, :, filter_idx]
+
+    fig = plt.figure()
+    for i in range(TOP_PATCHES):
+        ax = fig.add_subplot(4, 3, i + 1)
+        ax.set_xticks(())
+        ax.set_yticks(())
+        ax.imshow(patches[i, :, :], cmap='Greys_r')
     fig.show()
 
 
@@ -112,6 +141,5 @@ if __name__ == "__main__":
         print(sess.run(accuracy, feed_dict={x: x_test, y_: y_test, keep_prob: 1.0}))
         W = W_conv1.eval(sess)
         visualize_layer(W)
-
-    print(train_accs)
-    print(valid_accs)
+        H = sess.run(h_conv1, feed_dict={x: x_test})[:, :, :, :VISUAL_FILTERS]
+        visualize_patches(H)
