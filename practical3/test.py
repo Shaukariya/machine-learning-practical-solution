@@ -29,7 +29,7 @@ def bias_variable(shape):
 
 
 def conv2dl1(x, W):
-    return tf.nn.conv2d(x, W, strides=[1, 2, 2, 1], padding='VALID')
+    return tf.nn.conv2d(x, W, strides=[1, 2, 2, 1], padding='SAME')
 
 
 def conv2dl2(x, W):
@@ -50,13 +50,14 @@ def visualize_layer(W):
     fig.show()
 
 
-def visualize_patches(H):
+def visualize_patches(H, x_test):
     sort_a = np.argsort(H, axis=None)
     idx = np.unravel_index(sort_a, H.shape)
     test_idx = np.zeros(TOP_PATCHES, dtype=np.int)
     filter_idx = np.zeros(TOP_PATCHES, dtype=np.int)
     activation_set = set()
     cur_idx = 0
+    '''
     for i in range(idx[0].shape[0]):
         tuple_act = (idx[0][i], idx[3][i])
         if tuple_act not in activation_set:
@@ -66,14 +67,23 @@ def visualize_patches(H):
             activation_set.add(tuple_act)
             if cur_idx >= TOP_PATCHES:
                 break
-    patches = H[test_idx, :, :, filter_idx]
+    '''
+    test_idx = idx[0][:TOP_PATCHES]
+    width_idx =idx[1][:TOP_PATCHES] * 2
+    height_idx = idx[2][:TOP_PATCHES] * 2
+    '''
+    patches = x_test[test_idx, width_idx: width_idx + np.repeat(12, TOP_PATCHES),
+                    height_idx: height_idx + np.repeat(12, TOP_PATCHES), :]
+'''
 
     fig = plt.figure()
     for i in range(TOP_PATCHES):
         ax = fig.add_subplot(4, 3, i + 1)
         ax.set_xticks(())
         ax.set_yticks(())
-        ax.imshow(patches[i, :, :], cmap='Greys_r')
+        m = x_test[test_idx[i], width_idx[i]: width_idx[i] + 12,
+                    height_idx[i]: height_idx[i] + 12, :]
+        ax.imshow(np.reshape(m, [12, 12]), cmap='Greys_r')
     fig.show()
 
 
@@ -142,4 +152,5 @@ if __name__ == "__main__":
         W = W_conv1.eval(sess)
         visualize_layer(W)
         H = sess.run(h_conv1, feed_dict={x: x_test})[:, :, :, :VISUAL_FILTERS]
-        visualize_patches(H)
+        visualize_patches(H, x_test)
+        t=1
