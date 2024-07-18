@@ -1,5 +1,5 @@
 import numpy as np
-import _pickle as cp
+import pickle as cp
 import matplotlib.pyplot as plt
 import sklearn.linear_model as lm
 import sklearn.preprocessing
@@ -20,7 +20,7 @@ def expand_with_ones(X):
 
 
 def load_data():
-    X, y = cp.load(open('winequality-white.pickle', 'rb'))
+    X, y = cp.load(open('practical1\winequality-white.pickle', 'rb'))
     return X, y
 
 
